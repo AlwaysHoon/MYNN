@@ -23,7 +23,7 @@ def train(train_loader, model, criterion, optimizer, device, logger):
         optimizer.zero_grad()
         
         # Forward
-        outputs = model(images)
+        outputs = model(images) #shape: [batch_size,1000]
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
