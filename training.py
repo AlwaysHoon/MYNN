@@ -10,24 +10,24 @@
 #parser
 #################
 
-import argparse
-import os
+import argparse #
+import os       #
 import random
-import shutil
-import time
+import shutil   #
+import time     #
 import logging
 import warnings
 
-import torch
-import torch.nn as nn
+import torch    #
+import torch.nn as nn #
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
-import torch.optim
+import torch.optim  #
 
-import torch.utils.data
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
+import torch.utils.data #
+import torchvision.transforms as transforms #
+import torchvision.datasets as datasets #
+import torchvision.models as models #
 
 from bit_config import *
 from utils import *
@@ -58,7 +58,7 @@ parser.add_argument('--gpu', default=None, type=int,help='GPU id to use.')
 parser.add_argument('--act-range-momentum',type=float,default=-1,
                     help='momentum of the activation range moving average, '
                          '-1 stands for using minimum of min and maximum of max')
-parser.add_argument('--quant-mode',type=str,default='symmetric',choices=['asymmetric', 'symmetric'],help='quantization mode')
+
 parser.add_argument('--save-path',type=str,default='checkpoints/imagenet/test/',help='path to save the quantized model')
 parser.add_argument('--data-percentage',type=float,default=1,help='data percentage of training data')
 
@@ -68,23 +68,16 @@ parser.add_argument('--fix-BN-threshold',type=int,default=None,
                          'after the threshold iteration, the original fix-BN will be overwritten to be True')
 parser.add_argument('--checkpoint-iter',type=int,default=-1,help='the iteration that we save all the featuremap for analysis')
 parser.add_argument('--evaluate-times',type=int,default=-1,help='The number of evaluations during one epoch')
-
-parser.add_argument('--quant-scheme',type=str,default='uniform4',help='quantization bit configuration')
-parser.add_argument('--resume-quantize',action='store_true', help='if True map the checkpoint to a quantized model,'
-                         'otherwise map the checkpoint to an ordinary model and then quantize')
 parser.add_argument('--act-percentile',type=float,default=0,help='the percentage used for activation percentile'
                          '(0 means no percentile, 99.9 means cut off 0.1%)')
 parser.add_argument('--weight-percentile',type=float,default=0,
                     help='the percentage used for weight percentile'
                          '(0 means no percentile, 99.9 means cut off 0.1%)')
-parser.add_argument('--channel-wise',action='store_false',help='whether to use channel-wise quantizaiton or not')
-parser.add_argument('--bias-bit',type=int,default=32,help='quantizaiton bit-width for bias')
+
 parser.add_argument('--distill-method',type=str,default='None',help='you can choose None or KD_naive')
 parser.add_argument('--distill-alpha',type=float,default=0.95,help='how large is the ratio of normal loss and teacher loss')
 parser.add_argument('--temperature',type=float,default=6,help='how large is the temperature factor for distillation')
-parser.add_argument('--fixed-point-quantization',action='store_true',
-                    help='whether to skip deployment-oriented operations and '
-                         'use fixed-point rather than integer-only quantization')
+
 
 best_acc1 = 0
 quantize_arch_dict = {'resnet50': q_resnet50, 'resnet50b': q_resnet50,
@@ -121,12 +114,8 @@ def main():
     if args.gpu is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
-
-    
-
     ngpus_per_node = torch.cuda.device_count()
     main_worker(args.gpu, ngpus_per_node, args)
-
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
@@ -135,7 +124,6 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.gpu is not None:
         logging.info("Use GPU: {} for training".format(args.gpu))
 
-    
     # create model
     if args.pretrained and not args.resume:
         logging.info("=> using pre-trained PyTorchCV model '{}'".format(args.arch))
@@ -176,45 +164,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     model = quantize_arch(model)
 
-    bit_config = bit_config_dict["bit_config_" + args.arch + "_" + args.quant_scheme]
     name_counter = 0
-
-    for name, m in model.named_modules():
-        if name in bit_config.keys():
-            name_counter += 1
-            setattr(m, 'quant_mode', 'symmetric')
-            setattr(m, 'bias_bit', args.bias_bit)
-            setattr(m, 'quantize_bias', (args.bias_bit != 0))
-            setattr(m, 'per_channel', args.channel_wise)
-            setattr(m, 'act_percentile', args.act_percentile)
-            setattr(m, 'act_range_momentum', args.act_range_momentum)
-            setattr(m, 'weight_percentile', args.weight_percentile)
-            setattr(m, 'fix_flag', False)
-            setattr(m, 'fix_BN', args.fix_BN)
-            setattr(m, 'fix_BN_threshold', args.fix_BN_threshold)
-            setattr(m, 'training_BN_mode', args.fix_BN)
-            setattr(m, 'checkpoint_iter_threshold', args.checkpoint_iter)
-            setattr(m, 'save_path', args.save_path)
-            setattr(m, 'fixed_point_quantization', args.fixed_point_quantization)
-
-            if type(bit_config[name]) is tuple:
-                bitwidth = bit_config[name][0]
-                if bit_config[name][1] == 'hook':
-                    m.register_forward_hook(hook_fn_forward)
-                    global hook_keys
-                    hook_keys.append(name)
-            else:
-                bitwidth = bit_config[name]
-
-            if hasattr(m, 'activation_bit'):
-                setattr(m, 'activation_bit', bitwidth)
-                if bitwidth == 4:
-                    setattr(m, 'quant_mode', 'asymmetric')
-            else:
-                setattr(m, 'weight_bit', bitwidth)
-
-    logging.info("match all modules defined in bit_config: {}".format(len(bit_config.keys()) == name_counter))
-    logging.info(model)
 
     if args.resume and args.resume_quantize:
         if os.path.isfile(args.resume):
