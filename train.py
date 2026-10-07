@@ -13,7 +13,7 @@ import torchvision.transforms as transforms
 
 from args import main_args
 from utils import  setup_logger, save_checkpoint
-from utils.engine import train, validate
+# from utils.engine import train, validate
 
 # ================================================================
 # Main
@@ -34,12 +34,12 @@ def main():
     #-----------------------------
     # 2. Data Processing
     #-----------------------------
-    # ImageNet의 기본 normalization
+    # ImageNet basic normalization
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
     # Augmentation
     train_transform = transforms.Compose([transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize])
-    val_transform   = transforms.Compose([transforms.Resize(256), transforms.CentorCrop(224), transforms.ToTensor(), normalize])
+    val_transform   = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])
     
     # Data Processing
     train_dataset = datasets.ImageFolder(os.path.join(args.data, "train"), transform=train_transform)
@@ -54,7 +54,7 @@ def main():
     #-----------------------------
     # 4. Load Model
     #-----------------------------
-    # torchvision에서 모델 생성
+    # get model from torchvision.model
     model = models.get_model(args.arch, weights=None, num_classes = len(train_dataset.classes))
     model = model.to(device)
     logger.info(model)
@@ -62,7 +62,7 @@ def main():
     #-----------------------------
     # 5. Criterion / Optimizer
     #-----------------------------
-    criterion = nn.CrossEntropyLoss
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum = args.momentum, weight_decay = args.wd)
     
    
@@ -105,7 +105,7 @@ def main():
         
         if is_best:
             best_acc = val_acc
-            logger.info(f"Best model | Epoch: {epoch} | Acc: {best_acc}")
+            logger.info(f"Best model | Epoch: {epoch + 1} | Acc: {best_acc}")
         
         save_checkpoint({
             "epoch"    : epoch + 1,
@@ -116,6 +116,90 @@ def main():
     
     logger.info(f"Final Acc: {best_acc}")   
 
+def train(train_loader, model, criterion, optimizer, device, logger):
+    
+    # Dropout, BatchNorm 등을 train mode로 설정
+    model.train()
+    
+    total_loss = 0.0
+    correct = 0
+    total = 0
+    
+    for batch_idx, (images, targets) in enumerate(train_loader):
+        # data를 gpu로 이동
+        images  = images.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+
+        # 이전 iteration의 gradient 제거
+        optimizer.zero_grad()
+        
+        # Forward
+        outputs = model(images) #shape: [batch_size,1000]
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+        _, predicted = outputs.max(1)
+    
+        batch_size = targets.size(0)
+        batch_correct = predicted.eq(targets).sum().item()
+        
+        total_loss += (loss.item()*images.size(0))
+        total      += batch_size
+        correct    += batch_correct
+
+        batch_acc = (100.0 * batch_correct / batch_size)
+        logger.info(
+            f"Train Batch [{batch_idx + 1}/{len(train_loader)}] | "
+            f"Loss : {loss.item():.4f} | "
+            f"Acc : {batch_acc:.2f}"
+        )
+    average_loss = total_loss / total
+    accuracy = (100.0 * correct / total)
+    
+    return average_loss, accuracy
+
+# ================================================================
+# Validation
+# ================================================================
+def validate(val_loader, model, criterion, device, logger):
+    # Dropout, BatchNorm 등을 train mode로 설정
+    model.eval()
+    
+    total_loss = 0.0
+    correct = 0
+    total = 0
+    
+    #validation에서는 gradient가 필요없음
+    with torch.no_grad():
+        for batch_idx, (images, targets) in enumerate(val_loader):
+            # data를 gpu로 이동
+            images  = images.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            
+            # Forward
+            outputs = model(images)
+            loss = criterion(outputs, targets)
+            _, predicted = outputs.max(1)
+            
+            batch_size = targets.size(0)
+            batch_correct = predicted.eq(targets).sum().item()
+                        
+            total_loss += (loss.item()*images.size(0))
+            total      += batch_size
+            correct    += batch_correct
+            
+            batch_acc = (100.0 * batch_correct / batch_size)
+            
+            logger.info(
+                f"Val Batch [{batch_idx+1}/{len(val_loader)}] | "
+                f"Loss: {loss.item():.4f} | "
+                f"Acc : {batch_acc:.2f}"
+                    )
+            
+    average_loss = total_loss / total
+    accuracy = (100.0 * correct / total)
+        
+    return average_loss, accuracy
 
 
 if __name__ == "__main__":
